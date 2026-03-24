@@ -1,8 +1,16 @@
-from typing import Dict, List, Optional
-from qiskit import QuantumCircuit
+from typing import List
 import stim
 
-def tostim(noise_profile, stabs: List, logicals: List, cir_mv: List, num_q, num_s):
+def tostim(
+    noise_profile,
+    stabs: List,
+    logicals: List,
+    cir_mv: List,
+    num_q,
+    num_s,
+    *,
+    include_observables: bool = True,
+):
     num_d = num_q - num_s
 
     sz_list = []
@@ -33,20 +41,13 @@ def tostim(noise_profile, stabs: List, logicals: List, cir_mv: List, num_q, num_
             meas_records[q].append(current_m)
             current_m += 1
 
-            if len(meas_records[q]) == 1 and q in sz_list:
+            if q in sz_list and len(meas_records[q]) >= 2:
                 stim_circ.append(
-                    "DETECTOR", 
+                    "DETECTOR",
                     [
-                        stim.target_rec(meas_records[q][-1]-current_m)
-                    ]
-                )
-            elif len(meas_records[q]) >= 2:
-                stim_circ.append(
-                    "DETECTOR", 
-                    [
-                        stim.target_rec(meas_records[q][-2]-current_m), 
-                        stim.target_rec(meas_records[q][-1]-current_m)
-                    ]
+                        stim.target_rec(meas_records[q][-2] - current_m),
+                        stim.target_rec(meas_records[q][-1] - current_m),
+                    ],
                 )
 
         elif op in ["intra-move", "inter-move"]:
@@ -70,9 +71,21 @@ def tostim(noise_profile, stabs: List, logicals: List, cir_mv: List, num_q, num_
                 check_list.append(stim.target_rec(meas_records[q][-1]-current_m))
             stim_circ.append("DETECTOR", check_list)
 
-    for logical in logicals:
-        if logical["Type"] == "Z":
-            stim_circ.append("OBSERVABLE_INCLUDE", [stim.target_rec(meas_records[q][-1]-current_m) for q in logical["Data"]], [0])
+    if include_observables:
+        for obs_idx, logical in enumerate(logicals):
+            if logical["Type"] == "Z":
+                stim_circ.append(
+                    "OBSERVABLE_INCLUDE",
+                    [stim.target_rec(meas_records[q][-1] - current_m) for q in logical["Data"]],
+                    [obs_idx],
+                )
     
     return stim_circ
+
+
+def detector_error_model_gauge(circuit: stim.Circuit) -> stim.DetectorErrorModel:
+    return circuit.detector_error_model(
+        decompose_errors=False,
+        allow_gauge_detectors=True,
+    )
 

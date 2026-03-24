@@ -45,7 +45,8 @@ def grid_compiler(D, L, CZ, circ_origin, draw_flag):
     new_layout = {}
     layout = circ_sabre.layout.initial_layout.get_virtual_bits()
     for q in layout:
-        if q._register._name == 'q':
+        reg_name = getattr(q._register, "name", None) or getattr(q._register, "_name", None)
+        if reg_name == 'q':
             new_layout[layout[q]] = q._index
             qubit_to_pos[q._index] = layout[q]
             pos_to_qubit[layout[q]] = q._index

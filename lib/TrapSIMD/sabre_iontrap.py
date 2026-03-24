@@ -157,7 +157,8 @@ def sabre_compiler(D, L, CZ, n, alg, draw_flag):
     layout = circ_abstract.layout.initial_layout.get_virtual_bits()
     initial_layout = {}
     for q in layout:
-        if q._register._name == 'q':
+        reg_name = getattr(q._register, "name", None) or getattr(q._register, "_name", None)
+        if reg_name == 'q':
             print(q._index)
             for i, nq in enumerate(subgraphs[q._index]):            
                 initial_layout[circ_origin.qubits[nq]] = index_map[layout[q]] * CZ + i
@@ -177,7 +178,8 @@ def sabre_compiler(D, L, CZ, n, alg, draw_flag):
 
     layout = circ.layout.initial_layout.get_virtual_bits()
     for q in layout:
-        if q._register._name == 'q':
+        reg_name = getattr(q._register, "name", None) or getattr(q._register, "_name", None)
+        if reg_name == 'q':
             new_layout[layout[q]] = q._index
             pg_origin.nodes[layout[q]]['color'] = 'blue'
         else:
