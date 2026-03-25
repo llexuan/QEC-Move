@@ -94,10 +94,6 @@ def to_qiskit(fname, is_CSS, is_ordered, stabilizers, dataNum, iter=1):
         for s_idx in range(stabNum):
             anc_idx = s_idx + dataNum
             qc.measure(anc_idx, s_idx)
-        
-        for s_idx in range(stabNum):
-            anc_idx = s_idx + dataNum
-            qc.reset(anc_idx)
 
     with open(fname, "w") as f:
         f.write(qasm2.dumps(qc))
