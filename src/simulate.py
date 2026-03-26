@@ -34,36 +34,28 @@ def merge_measure_reset_pairs(cir_mv: List[Tuple[str, Any]]) -> List[Tuple[str, 
 
 
 def strip_initializing_resets(cir_mv: List[Tuple[str, Any]], num_q: int) -> List[Tuple[str, Any]]:
-    """Remove leading resets that prepare |0⟩ on all qubits.
+    """Remove leading Qiskit ``reset`` ops that duplicate Stim's |0⟩ initial state.
 
-    Qiskit emits ``reset`` on every line at the start of the circuit. Stim already
-    assumes qubits begin in |0⟩; explicit ``R`` at t=0 interacts badly with
-    detector_error_model's backward analysis: logical Z observables propagate to
-    Pauli X on ancillas, which anti-commute with Z-basis resets on those lines.
+    Stim assumes all qubits start in |0⟩. Explicit ``R`` at the beginning of the
+    circuit interacts badly with ``detector_error_model`` backward analysis and
+    can raise ``non-deterministic detectors`` (collapse on q0 anti-commuting with
+    detector sensitivities).
+
+    The grid compiler often emits a *prefix* of ``reset`` ops that is **not**
+    "all qubits reset before any other gate" — e.g. ``reset(q0)`` then ``cx``
+    before the remaining resets. The old logic only stripped when every qubit
+    had been reset in order without interruption, which left spurious ``R`` on
+    q0.
+
+    We therefore strip **every** contiguous ``reset`` instruction at the start
+    of ``cir_mv`` until the first non-reset operation.
     """
     if not cir_mv or num_q <= 0:
         return cir_mv
-    full = set(range(num_q))
     i = 0
-    covered: set[int] = set()
-    while i < len(cir_mv):
-        op, args = cir_mv[i]
-        if op != "reset":
-            break
-        if len(args) == 1:
-            q = args[0]
-            if q in covered:
-                break
-            covered.add(q)
-            i += 1
-            if covered == full:
-                return cir_mv[i:]
-            continue
-        # Single instruction R 0 1 2 ... num_q-1
-        if set(args) == full and len(args) == num_q:
-            return cir_mv[i + 1 :]
-        break
-    return cir_mv
+    while i < len(cir_mv) and cir_mv[i][0] == "reset":
+        i += 1
+    return cir_mv[i:]
 
 
 def tostim(
