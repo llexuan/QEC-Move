@@ -80,15 +80,11 @@ def tostim(
     # construction.
     cir_mv = strip_initializing_resets(cir_mv, num_q)
 
-    sz_list = []
+    z_list = []
     for s_idx, stab in enumerate(stabs):
         if all(gate[1] == "Z" for gate in stab["Ctrl"]):
-            sz_list.append(s_idx + num_d)
+            z_list.append(s_idx + num_d)
 
-    # Export temporal detectors only for X-type stabilizers.
-    # Z-check temporal detectors (and the end-of-circuit Z-check detector
-    # construction below) can make Stim's DEM analysis non-deterministic on
-    # some BB schedules.
     x_list = []
     for s_idx, stab in enumerate(stabs):
         if all(gate[1] == "X" for gate in stab["Ctrl"]):
@@ -98,6 +94,25 @@ def tostim(
 
     meas_records = [[] for _ in range(num_q)]
     current_m = 0
+
+    def append_syndrome_detector(q: int) -> None:
+        records = meas_records[q]
+        if q in z_list and len(records) == 1:
+            # In a memory-Z experiment the data starts in |0>, so the first
+            # Z-check result has a known value and anchors the time boundary.
+            stim_circ.append(
+                "DETECTOR",
+                [stim.target_rec(records[-1] - current_m)],
+            )
+        elif q in x_list or q in z_list:
+            if len(records) >= 2:
+                stim_circ.append(
+                    "DETECTOR",
+                    [
+                        stim.target_rec(records[-2] - current_m),
+                        stim.target_rec(records[-1] - current_m),
+                    ],
+                )
 
     for op, args in cir_mv:
         if op == "reset":
@@ -116,15 +131,7 @@ def tostim(
             stim_circ.append("M", args)
             meas_records[q].append(current_m)
             current_m += 1
-
-            if q in x_list and len(meas_records[q]) >= 2:
-                stim_circ.append(
-                    "DETECTOR",
-                    [
-                        stim.target_rec(meas_records[q][-2] - current_m),
-                        stim.target_rec(meas_records[q][-1] - current_m),
-                    ],
-                )
+            append_syndrome_detector(q)
 
         elif op == "mr":
             q = args[0]
@@ -137,15 +144,7 @@ def tostim(
             meas_records[q].append(current_m)
             current_m += 1
             stim_circ.append("R", [q])
-
-            if q in x_list and len(meas_records[q]) >= 2:
-                stim_circ.append(
-                    "DETECTOR",
-                    [
-                        stim.target_rec(meas_records[q][-2] - current_m),
-                        stim.target_rec(meas_records[q][-1] - current_m),
-                    ],
-                )
+            append_syndrome_detector(q)
 
         elif op in ["intra-move", "inter-move"]:
             stim_circ.append("DEPOLARIZE1", args[0:1], [noise_profile[op]])
@@ -161,9 +160,21 @@ def tostim(
         meas_records[d_idx].append(current_m)
         current_m += 1
 
-    # NOTE: We intentionally skip exporting end-of-circuit Z-check detectors.
-    # Using X-check temporal detectors is enough to decode Z-logical errors
-    # in this CSS BB setup, and it avoids Stim non-determinism.
+    # Close the memory-Z experiment's time boundary. In the absence of errors,
+    # each final Z-check equals the parity of its data-qubit measurements.
+    for s_idx, stab in enumerate(stabs):
+        if all(gate[1] == "Z" for gate in stab["Ctrl"]):
+            ancilla = s_idx + num_d
+            stim_circ.append(
+                "DETECTOR",
+                [
+                    stim.target_rec(meas_records[ancilla][-1] - current_m),
+                    *[
+                        stim.target_rec(meas_records[q][-1] - current_m)
+                        for q in stab["Data"]
+                    ],
+                ],
+            )
 
     if include_observables:
         for obs_idx, logical in enumerate(logicals):
@@ -178,8 +189,8 @@ def tostim(
 
 
 def detector_error_model_gauge(circuit: stim.Circuit) -> stim.DetectorErrorModel:
+    """Build a strict graphlike detector model suitable for PyMatching."""
     return circuit.detector_error_model(
-        decompose_errors=False,
-        allow_gauge_detectors=True,
+        decompose_errors=True,
     )
 

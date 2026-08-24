@@ -63,9 +63,15 @@ def extract(fname):
 def to_qiskit(fname, is_CSS, is_ordered, stabilizers, dataNum, iter=1):
     stabNum = len(stabilizers)
     qc = qiskit.QuantumCircuit(dataNum + stabNum, stabNum)
-    qc.reset(range(dataNum + stabNum))
+    # Prepare the data block once. Syndrome ancillas are re-prepared at the
+    # beginning of every extraction round below.
+    qc.reset(range(dataNum))
 
     for _ in range(iter):
+        # A measurement leaves an ancilla in its measured state. Reusing that
+        # state in the next round makes syndrome differences depend on previous
+        qc.reset(range(dataNum, dataNum + stabNum))
+
         cx_list = []
         for s_idx, stab in enumerate(stabilizers):
             anc_idx = s_idx + dataNum
