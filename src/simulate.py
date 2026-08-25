@@ -1,4 +1,4 @@
-from typing import List, Tuple, Any
+from typing import Any, List, Optional, Sequence, Tuple
 import stim
 
 
@@ -67,6 +67,7 @@ def tostim(
     num_s,
     *,
     include_observables: bool = True,
+    observable_indices: Optional[Sequence[int]] = None,
 ):
     num_d = num_q - num_s
 
@@ -177,7 +178,15 @@ def tostim(
             )
 
     if include_observables:
-        for obs_idx, logical in enumerate(logicals):
+        if observable_indices is None:
+            selected_logicals = list(enumerate(logicals))
+        else:
+            selected_logicals = [
+                (logical_idx, logicals[logical_idx])
+                for logical_idx in observable_indices
+            ]
+
+        for obs_idx, (_, logical) in enumerate(selected_logicals):
             if logical["Type"] == "Z":
                 stim_circ.append(
                     "OBSERVABLE_INCLUDE",
@@ -192,5 +201,12 @@ def detector_error_model_gauge(circuit: stim.Circuit) -> stim.DetectorErrorModel
     """Build a strict graphlike detector model suitable for PyMatching."""
     return circuit.detector_error_model(
         decompose_errors=True,
+    )
+
+
+def detector_error_model_bposd(circuit: stim.Circuit) -> stim.DetectorErrorModel:
+    """Build a strict DEM while preserving BB-code hyperedges for BP+OSD."""
+    return circuit.detector_error_model(
+        decompose_errors=False,
     )
 

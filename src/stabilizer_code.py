@@ -173,6 +173,9 @@ def surface_code(fname, d=3):
 
 
 def bb_code(fname, ell=6, m=6):
+    if ell <= 3 or m <= 3:
+        raise ValueError("BB-code dimensions must both be greater than 3")
+
     # Takes as input a binary square matrix A
     # Returns the rank of A over the binary field F_2
     def rank2(A):
@@ -197,7 +200,7 @@ def bb_code(fname, ell=6, m=6):
     sX= ['idle', 1, 4, 3, 5, 0, 2]
     sZ= [3, 5, 0, 1, 2, 4, 'idle']
 
-    # [[144, 12]]
+    # The default ell=m=6 instance is [[72, 12]].
     a1,a2,a3 = 3,1,2
     b1,b2,b3 = 3,1,2
     b1,b2,b3 = 3,1,2
@@ -244,10 +247,13 @@ def bb_code(fname, ell=6, m=6):
 
         for l_idx in range(lz.shape[0]):
             f.write(f'logical LZ{l_idx} ')
+            first = True
             for idx in range(lz.shape[1]):
                 if lz[l_idx][idx] != 0:
-                    f.write(", ")
+                    if not first:
+                        f.write(", ")
                     f.write(f'(Z, q[{idx}])')
+                    first = False
             f.write("\n")
 
         # Give a name to each qubit
@@ -307,6 +313,15 @@ def bb_code(fname, ell=6, m=6):
             nbs[(check_name,3)] = ('data_right',np.nonzero(A1[:,i])[0][0])
             nbs[(check_name,4)] = ('data_right',np.nonzero(A2[:,i])[0][0])
             nbs[(check_name,5)] = ('data_right',np.nonzero(A3[:,i])[0][0])
+
+        def data_index(node):
+            """Map a Tanner-graph data node into the qreg's two data blocks."""
+            block, local_idx = node
+            if block == 'data_left':
+                return int(local_idx)
+            if block == 'data_right':
+                return n2 + int(local_idx)
+            raise ValueError(f"Expected a data node, got {node}")
         
         for s_idx, control in enumerate(Xchecks):
             f.write('stabilizer SX%d ' % s_idx)
@@ -315,7 +330,7 @@ def bb_code(fname, ell=6, m=6):
                 if direction != 'idle':
                     if t != 1:
                         f.write(", ")
-                    f.write(f'(X, q[{int(nbs[(control, direction)][1])}], {t})')
+                    f.write(f'(X, q[{data_index(nbs[(control, direction)])}], {t})')
             f.write("\n")
 
         for s_idx, target in enumerate(Zchecks):
@@ -325,5 +340,5 @@ def bb_code(fname, ell=6, m=6):
                 if direction != 'idle':
                     if t != 0:
                         f.write(", ")
-                    f.write(f'(Z, q[{int(nbs[(target, direction)][1])}], {t})')
+                    f.write(f'(Z, q[{data_index(nbs[(target, direction)])}], {t})')
             f.write("\n")
