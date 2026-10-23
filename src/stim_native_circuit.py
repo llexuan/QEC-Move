@@ -47,23 +47,73 @@ def _stabilizer_edges_and_families(
     return z_anc_ids, x_anc_ids, edges_by_anc
 
 
-def compute_bb_hx_hz(ell: int = 6, m: int = 6) -> Tuple[np.ndarray, np.ndarray]:
-    """Same hx, hz construction as ``bb_code`` in ``stabilizer_code.py``."""
-    n2 = m * ell
+def compute_bb_hx_hz(
+    ell: int = 6,
+    m: int = 6,
+    *,
+    a_monomials=None,
+    b_monomials=None,
+    a_pi_exponents=None,
+    b_pi_exponents=None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Construct the same BB check matrices as ``stabilizer_code.bb_code``."""
+    if ell < 2 or m < 2:
+        raise ValueError("BB-code dimensions ell and m must both be at least 2")
+
+    default_a = ((3, 0), (0, 1), (0, 2))
+    default_b = ((0, 3), (1, 0), (2, 0))
+
+    def resolve_monomials(name, monomials, pi_exponents, default):
+        if monomials is not None and pi_exponents is not None:
+            raise ValueError(
+                f"Specify either {name}_monomials or {name}_pi_exponents, not both"
+            )
+        if pi_exponents is not None:
+            monomials = [(int(t) % ell, int(t) % m) for t in pi_exponents]
+        elif monomials is None:
+            monomials = default
+
+        normalized = tuple(
+            (int(x_exponent) % ell, int(y_exponent) % m)
+            for x_exponent, y_exponent in monomials
+        )
+        if len(normalized) != 3 or len(set(normalized)) != 3:
+            raise ValueError(
+                f"{name} must contain three distinct monomials modulo "
+                f"ell={ell}, m={m}; got {normalized}"
+            )
+        return normalized
+
+    a_terms = resolve_monomials(
+        "a", a_monomials, a_pi_exponents, default_a
+    )
+    b_terms = resolve_monomials(
+        "b", b_monomials, b_pi_exponents, default_b
+    )
+
     I_ell = np.identity(ell, dtype=int)
     I_m = np.identity(m, dtype=int)
+    I = np.identity(ell * m, dtype=int)
     x = {}
     y = {}
     for i in range(ell):
         x[i] = np.kron(np.roll(I_ell, i, axis=1), I_m)
     for i in range(m):
         y[i] = np.kron(I_ell, np.roll(I_m, i, axis=1))
-    a1, a2, a3 = 3, 1, 2
-    b1, b2, b3 = 3, 1, 2
-    A = (x[a1] + y[a2] + y[a3]) % 2
-    B = (y[b1] + x[b2] + x[b3]) % 2
+
+    def polynomial_matrix(terms):
+        matrices = [
+            np.dot(x[x_exponent], y[y_exponent])
+            for x_exponent, y_exponent in terms
+        ]
+        return sum(matrices, start=np.zeros_like(I)) % 2
+
+    A = polynomial_matrix(a_terms)
+    B = polynomial_matrix(b_terms)
     hx = np.hstack((A, B))
     hz = np.hstack((B.T, A.T))
+    if np.any(np.dot(hx, hz.T) % 2):
+        raise ValueError("Generated BB checks do not satisfy CSS commutation")
     return hx.astype(np.uint8) % 2, hz.astype(np.uint8) % 2
 
 

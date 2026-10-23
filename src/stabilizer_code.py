@@ -172,9 +172,64 @@ def surface_code(fname, d=3):
                 f.write('(Z, q[{i0}], 0), (Z, q[{i1}], 1)\n'.format(i0 = coord2index(i*2+1, d-1), i1 = coord2index(i*2+2, d-1)))
 
 
-def bb_code(fname, ell=6, m=6):
-    if ell <= 3 or m <= 3:
-        raise ValueError("BB-code dimensions must both be greater than 3")
+def bb_code(
+    fname,
+    ell=6,
+    m=6,
+    *,
+    a_monomials=None,
+    b_monomials=None,
+    a_pi_exponents=None,
+    b_pi_exponents=None,
+):
+    """Write an ordered weight-six bivariate-bicycle CSS code.
+
+    Monomials are ``(x_exponent, y_exponent)`` pairs.  The coprime-BB
+    shorthand ``pi = x*y`` can instead be supplied through ``*_pi_exponents``;
+    for example, exponent ``t`` denotes ``x**(t % ell) y**(t % m)``.
+
+    The default monomials preserve the original [[72, 12, 6]] instance.
+    Exactly three distinct terms are required for both A and B because the
+    seven-layer syndrome-extraction schedule below is specialized to
+    weight-six BB checks.
+    """
+    if ell < 2 or m < 2:
+        raise ValueError("BB-code dimensions ell and m must both be at least 2")
+
+    default_a = ((3, 0), (0, 1), (0, 2))
+    default_b = ((0, 3), (1, 0), (2, 0))
+
+    def resolve_monomials(name, monomials, pi_exponents, default):
+        if monomials is not None and pi_exponents is not None:
+            raise ValueError(
+                f"Specify either {name}_monomials or {name}_pi_exponents, not both"
+            )
+        if pi_exponents is not None:
+            monomials = [(int(t) % ell, int(t) % m) for t in pi_exponents]
+        elif monomials is None:
+            monomials = default
+
+        normalized = tuple(
+            (int(x_exponent) % ell, int(y_exponent) % m)
+            for x_exponent, y_exponent in monomials
+        )
+        if len(normalized) != 3:
+            raise ValueError(
+                f"{name} must contain exactly three monomials; got {len(normalized)}"
+            )
+        if len(set(normalized)) != 3:
+            raise ValueError(
+                f"{name} monomials must be distinct modulo ell={ell}, m={m}: "
+                f"{normalized}"
+            )
+        return normalized
+
+    a_terms = resolve_monomials(
+        "a", a_monomials, a_pi_exponents, default_a
+    )
+    b_terms = resolve_monomials(
+        "b", b_monomials, b_pi_exponents, default_b
+    )
 
     # Takes as input a binary square matrix A
     # Returns the rank of A over the binary field F_2
@@ -200,11 +255,6 @@ def bb_code(fname, ell=6, m=6):
     sX= ['idle', 1, 4, 3, 5, 0, 2]
     sZ= [3, 5, 0, 1, 2, 4, 'idle']
 
-    # The default ell=m=6 instance is [[72, 12]].
-    a1,a2,a3 = 3,1,2
-    b1,b2,b3 = 3,1,2
-    b1,b2,b3 = 3,1,2
-
     # code length
     n = 2*m*ell
     n2 = m*ell
@@ -220,24 +270,38 @@ def bb_code(fname, ell=6, m=6):
     for i in range(m):
         y[i] = np.kron(I_ell,np.roll(I_m,i,axis=1))
 
-    A = (x[a1] + y[a2] + y[a3]) % 2
-    B = (y[b1] + x[b2] + x[b3]) % 2
+    def monomial_matrix(term):
+        x_exponent, y_exponent = term
+        return np.dot(x[x_exponent], y[y_exponent])
 
-    A1 = x[a1]
-    A2 = y[a2]
-    A3 = y[a3]
-    B1 = y[b1]
-    B2 = x[b2]
-    B3 = x[b3]
+    A_terms = [monomial_matrix(term) for term in a_terms]
+    B_terms = [monomial_matrix(term) for term in b_terms]
+    A = sum(A_terms, start=np.zeros_like(I)) % 2
+    B = sum(B_terms, start=np.zeros_like(I)) % 2
+    A1, A2, A3 = A_terms
+    B1, B2, B3 = B_terms
 
     AT = np.transpose(A)
     BT = np.transpose(B)
 
     hx = np.hstack((A,B))
     hz = np.hstack((BT,AT))
+    if np.any(np.dot(hx, hz.T) % 2):
+        raise ValueError("Generated BB checks do not satisfy CSS commutation")
+    if not (
+        np.all(np.sum(A, axis=0) == 3)
+        and np.all(np.sum(A, axis=1) == 3)
+        and np.all(np.sum(B, axis=0) == 3)
+        and np.all(np.sum(B, axis=1) == 3)
+    ):
+        raise ValueError("Each BB polynomial must define a weight-three circulant")
 
     qcode = css_code(hx, hz)
     lz = qcode.lz.toarray()
+    if lz.ndim != 2 or lz.shape[0] == 0 or lz.shape[1] != n:
+        raise ValueError(
+            f"Generated BB code has no usable Z logicals: logical shape={lz.shape}"
+        )
     print(lz.shape)
 
     with open(fname, "w") as f:
